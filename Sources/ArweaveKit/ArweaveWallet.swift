@@ -46,7 +46,8 @@ public struct ArweaveWallet: Codable, Hashable, Comparable {
         let  rsaPrivateKeyComponents = try _key.rsaPrivateKeyComponents()
         
         let keypair = try RSAPrivateKey(privateKey: SecKey.representing(rsaPrivateKeyComponents: rsaPrivateKeyComponents))
-        keyData = keypair.jsonData() ?? Data()
+        let jsonData = try JSONSerialization.data(withJSONObject: keypair.requiredParameters, options: .prettyPrinted)
+        keyData = jsonData
         ownerModulus = keypair.modulus
         address = ArweaveAddress(from: keypair.modulus)
         key = keypair

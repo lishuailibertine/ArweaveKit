@@ -99,6 +99,10 @@ final class WalletTests: XCTestCase {
         print("address = \(address)")
     }
     
+    func testNewWallet() throws{
+        let wallet = try ArweaveWallet()
+        
+    }
     func testSignMessage() throws {
         let msg = try XCTUnwrap("Arweave".data(using: .utf8))
         let wallet = try XCTUnwrap(WalletTests.wallet)
