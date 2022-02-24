@@ -1,5 +1,7 @@
 import XCTest
 import CryptoKit
+import JOSESwift
+
 @testable import ArweaveKit
 
 final class WalletTests: XCTestCase {
@@ -47,7 +49,56 @@ final class WalletTests: XCTestCase {
 //        let lastTxId = try await WalletTests.wallet?.lastTransactionId()
 //        XCTAssertNotNil(lastTxId)
 //    }
+    func testRandom(){
+        
+        // Generate keys
+        let tag = "com.wm.POD-browser".data(using: .utf8)!
+        let attributes: [String: Any] =
+        [kSecAttrKeyType as String:  kSecAttrKeyTypeRSA,
+         kSecAttrKeySizeInBits as String: 2048,
+         kSecPrivateKeyAttrs as String:
+            [kSecAttrApplicationTag as String: tag]
+        ]
+        var error: Unmanaged<CFError>?
+        guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+            print(error!.takeRetainedValue() as Error)
+            return
+        }
+       
+        
+    }
+    
+    func testGenerateBase64Encoded2048BitRSAKey() throws{
+        let type = kSecAttrKeyTypeRSA
+        let tag = "com.wm.POD-browser".data(using: .utf8)!
+        let attributes: [String: Any] =
+        [kSecAttrKeyType as String: type,
+         kSecAttrKeySizeInBits as String: 2048
+        ]
+        
+        var error: Unmanaged<CFError>?
+        guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error),
+              let data = SecKeyCopyExternalRepresentation(key, &error) as Data?,
+              let publicKey = SecKeyCopyPublicKey(key),
+              let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else {
+                  throw error!.takeRetainedValue() as Error
+              }
+        let modulus = publicKeyData[(publicKeyData.count > 269 ? 9:8)...]
+        let exponent = publicKeyData[(publicKeyData.count - 3)..<publicKeyData.count]
+        
+        let  rsaPrivateKeyComponents = try key.rsaPrivateKeyComponents()
+        
+        let keypair = try RSAKeyPair(privateKey: SecKey.representing(rsaPrivateKeyComponents: rsaPrivateKeyComponents))
+        let jsonData = try JSONSerialization.data(withJSONObject: keypair.requiredParameters, options: .prettyPrinted)
+            // here "jsonData" is the dictionary encoded in JSON data
 
+        let theJSONText = String(data: jsonData,
+                                       encoding: .ascii)
+            print("JSON string = \(theJSONText!)")
+        let address = ArweaveAddress(from: keypair.modulus)
+        print("address = \(address)")
+    }
+    
     func testSignMessage() throws {
         let msg = try XCTUnwrap("Arweave".data(using: .utf8))
         let wallet = try XCTUnwrap(WalletTests.wallet)
