@@ -5,7 +5,7 @@ import PromiseKit
 
 public struct ArweaveWallet: Codable, Hashable, Comparable {
     
-    public let key: RSAPrivateKey
+    public var key: RSAPrivateKey
     public let keyData: Data
     public var ownerModulus: String
     public var address: ArweaveAddress
@@ -33,7 +33,24 @@ public struct ArweaveWallet: Codable, Hashable, Comparable {
         ownerModulus = key.modulus
         address = ArweaveAddress(from: key.modulus)
     }
+    public init() throws{
+        let type = kSecAttrKeyTypeRSA
+        let attributes: [String: Any] =
+        [kSecAttrKeyType as String: type,
+         kSecAttrKeySizeInBits as String: 2048
+        ]
+        var error: Unmanaged<CFError>?
+        guard let _key = SecKeyCreateRandomKey(attributes as CFDictionary, &error)else {
+                  throw error!.takeRetainedValue() as Error
+              }
+        let  rsaPrivateKeyComponents = try _key.rsaPrivateKeyComponents()
         
+        let keypair = try RSAPrivateKey(privateKey: SecKey.representing(rsaPrivateKeyComponents: rsaPrivateKeyComponents))
+        keyData = keypair.jsonData() ?? Data()
+        ownerModulus = keypair.modulus
+        address = ArweaveAddress(from: keypair.modulus)
+        key = keypair
+    }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let data = try container.decode(Data.self, forKey: .keyData)
