@@ -101,7 +101,9 @@ final class WalletTests: XCTestCase {
     
     func testNewWallet() throws{
         let wallet = try ArweaveWallet()
-        
+        let theJSONText = String(data: wallet.keyData,
+                                       encoding: .ascii)
+        print("JSON string = \(theJSONText!)",wallet.address.address)
     }
     func testSignMessage() throws {
         let msg = try XCTUnwrap("Arweave".data(using: .utf8))
