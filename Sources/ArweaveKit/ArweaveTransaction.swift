@@ -3,11 +3,17 @@ import CryptoKit
 import UIKit
 import PromiseKit
 
+public struct Chunks {
+    let data_root: Data
+    let chunks: [Chunk]
+    let proofs: [Proof]
+}
+
 public typealias TransactionId = String
 public typealias Base64EncodedString = String
 
 public extension ArweaveTransaction {
-
+    
     struct PriceRequest {
         
         public init(bytes: Int = 0, target: ArweaveAddress? = nil) {
@@ -18,11 +24,11 @@ public extension ArweaveTransaction {
         public var bytes: Int = 0
         public var target: ArweaveAddress?
     }
-
+    
     struct Tag: Codable {
         public let name: String
         public let value: String
-
+        
         public init(name: String, value: String) {
             self.name = name
             self.value = value
@@ -31,6 +37,7 @@ public extension ArweaveTransaction {
 }
 
 public struct ArweaveTransaction: Codable {
+    public let format = Format.v2
     public var id: TransactionId = ""
     public var last_tx: TransactionId = ""
     public var owner: String = ""
@@ -40,23 +47,34 @@ public struct ArweaveTransaction: Codable {
     public var data: String = ""
     public var reward: String = ""
     public var signature: String = ""
-
+    
+    // For v2 transactions, `data` is *not* part of the submitted payload.
+    // do not remove optional. decode will fail if data comes back empty
+    public var data_root: String = ""
+    public var data_size: String = "0"
+    public var chunks: Chunks?
+    
     private enum CodingKeys: String, CodingKey {
-        case id, last_tx, owner, tags, target, quantity, data, reward, signature
+        case format, id, last_tx, owner, tags, target, quantity, data, data_size, data_root, reward, signature
     }
-
+    
     public var priceRequest: PriceRequest {
         PriceRequest(bytes: rawData.count, target: ArweaveAddress(address: target))
     }
-
+    
     public var rawData = Data()
+    public enum Format: Int, Codable {
+        case v1 = 1
+        case v2 = 2
+    }
 }
 
 public extension ArweaveTransaction {
     init(data: Data) {
         self.rawData = data
+        self.data_size = String(data.count)
     }
-
+    
     init(amount: Amount, target: ArweaveAddress) {
         self.quantity = String(describing: amount)
         self.target = target.address
@@ -66,7 +84,7 @@ public extension ArweaveTransaction {
         return Promise { seal in
             var tx = self
             firstly {
-               return ArweaveTransaction.anchor()
+                return ArweaveTransaction.anchor()
             }.then { txAnchor -> Promise<Amount> in
                 tx.last_tx = txAnchor
                 tx.data = rawData.base64URLEncodedString()
@@ -74,20 +92,24 @@ public extension ArweaveTransaction {
             }.done({ priceAmount in
                 tx.reward = String(describing: priceAmount)
                 tx.owner = wallet.ownerModulus
-                do {
-                    let signedMessage = try wallet.sign(tx.signatureBody())
-                    tx.signature = signedMessage.base64URLEncodedString()
-                    tx.id = SHA256.hash(data: signedMessage).data.base64URLEncodedString()
-                    seal.fulfill(tx)
-                } catch {
-                    seal.reject(ArweaveApiError.signError)
+                tx.signatureBody().done({ signBody in
+                    do {
+                        let signedMessage = try wallet.sign(signBody)
+                        tx.signature = signedMessage.base64URLEncodedString()
+                        tx.id = SHA256.hash(data: signedMessage).data.base64URLEncodedString()
+                        seal.fulfill(tx)
+                    }catch {
+                        seal.reject(ArweaveApiError.signError)
+                    }
+                }).catch { error in
+                    seal.reject(error)
                 }
             }).catch({ error in
                 seal.reject(error)
             })
         }
     }
-
+    
     func commit() -> Promise<Data>{
         return Promise { seal in
             guard !signature.isEmpty else {
@@ -102,23 +124,65 @@ public extension ArweaveTransaction {
             }
         }
     }
-
-    private func signatureBody() -> Data {
-        return [
-            Data(base64URLEncoded: owner),
-            Data(base64URLEncoded: target),
-            rawData,
-            quantity.data(using: .utf8),
-            reward.data(using: .utf8),
-            Data(base64URLEncoded: last_tx),
-            tags.combined.data(using: .utf8)
-        ]
-        .compactMap { $0 }
-        .combined
+    
+    private mutating func signatureBody() -> Promise<Data> {
+        
+        if data_root.isEmpty {
+            prepareChunks(data: self.rawData)
+        }
+        return Promise { seal in
+            ArweaveTransaction.anchor().done {[self] last_tx in
+                seal.fulfill(ArweaveTransaction.deepHash(buffers:[
+                    withUnsafeBytes(of: format) { Data($0) },
+                    Data(base64URLEncoded: owner),
+                    Data(base64URLEncoded: target),
+                    quantity.data(using: .utf8),
+                    reward.data(using: .utf8),
+                    Data(base64URLEncoded: last_tx),
+                    tags.combined.data(using: .utf8),
+                    withUnsafeBytes(of: data_size) { Data($0) },
+                    Data(base64URLEncoded: data_root)
+                ].compactMap { $0 }))
+                
+            }.catch { error in
+                seal.reject(error)
+            }
+        }
+    }
+    static func deepHash(buffers: [Data]) -> Data {
+        precondition(!buffers.isEmpty)
+        let tag = "list".data(using: .utf8)! + String(buffers.count).data(using: .utf8)!
+        return deepHashChunks(chunks: buffers, acc: tag)
+    }
+    
+    static func deepHash(buffer: Data) -> Data {
+        let tag = "blob".data(using: .utf8)! + String(buffer.count).data(using: .utf8)!
+        let taggedHash = Data(SHA384.hash(data: tag)) + Data(SHA384.hash(data: buffer))
+        return Data(SHA384.hash(data: taggedHash))
+    }
+    
+    static func deepHashChunks(chunks: [Data], acc: Data) -> Data {
+        guard chunks.count >= 1 else { return acc }
+        var currentChunks = chunks
+        
+        let first = currentChunks.removeFirst()
+        let hashPair = acc + deepHash(buffer: first)
+        let newAcc = Data(SHA384.hash(data: hashPair))
+        return deepHashChunks(chunks: currentChunks, acc: newAcc)
     }
 }
-
 public extension ArweaveTransaction {
+    mutating func prepareChunks(data: Data) {
+        if chunks == nil && data.count > 0 {
+            chunks = generateTransactionChunks(data: data)
+            data_root = chunks!.data_root.base64URLEncodedString()
+        }
+        
+        if chunks == nil && data.count == 0 {
+            chunks = Chunks(data_root: Data(), chunks: [], proofs: [])
+            data_root = ""
+        }
+    }
     static func find(_ txId: TransactionId) -> Promise<ArweaveTransaction>{
         return Promise { seal in
             let findEndpoint = Arweave.shared.request(for: .transaction(id: txId))
@@ -144,7 +208,7 @@ public extension ArweaveTransaction {
             }
         }
     }
-
+    
     static func status(of txId: TransactionId) -> Promise<ArweaveTransaction.Status>{
         return Promise { seal in
             let target = Arweave.shared.request(for: .transactionStatus(id: txId))
@@ -166,7 +230,7 @@ public extension ArweaveTransaction {
             }
         }
     }
-
+    
     static func price(for request: ArweaveTransaction.PriceRequest)-> Promise<Amount>{
         return Promise { seal in
             let target = Arweave.shared.request(for: .reward(request))
@@ -182,7 +246,7 @@ public extension ArweaveTransaction {
             }
         }
     }
-
+    
     static func anchor() -> Promise<String>{
         return Promise { seal in
             let target = Arweave.shared.request(for: .txAnchor)
