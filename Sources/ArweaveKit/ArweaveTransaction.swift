@@ -37,7 +37,7 @@ public extension ArweaveTransaction {
 }
 
 public struct ArweaveTransaction: Codable {
-    public let format = Format.v1
+    public let format = Format.v2
     public var id: TransactionId = ""
     public var last_tx: TransactionId = ""
     public var owner: String = ""
@@ -48,8 +48,7 @@ public struct ArweaveTransaction: Codable {
     public var reward: String = ""
     public var signature: String = ""
     
-    // For v2 transactions, `data` is *not* part of the submitted payload.
-    // do not remove optional. decode will fail if data comes back empty
+    
     public var data_root: String = ""
     public var data_size: String = "0"
     public var chunks: Chunks?
@@ -126,26 +125,40 @@ public extension ArweaveTransaction {
     }
     
     private mutating func signatureBody() -> Promise<Data> {
-        
-        if data_root.isEmpty {
-            prepareChunks(data: self.rawData)
-        }
-        return Promise { seal in
-            ArweaveTransaction.anchor().done {[self] last_tx in
-                seal.fulfill(ArweaveTransaction.deepHash(buffers:[
-                    withUnsafeBytes(of: format) { Data($0) },
+        switch format {
+        case .v1:
+            return Promise { seal in
+                seal.fulfill([
                     Data(base64URLEncoded: owner),
                     Data(base64URLEncoded: target),
+                    rawData,
                     quantity.data(using: .utf8),
                     reward.data(using: .utf8),
                     Data(base64URLEncoded: last_tx),
-                    tags.combined.data(using: .utf8),
-                    withUnsafeBytes(of: data_size) { Data($0) },
-                    Data(base64URLEncoded: data_root)
-                ].compactMap { $0 }))
-                
-            }.catch { error in
-                seal.reject(error)
+                    tags.combined.data(using: .utf8)
+                ].compactMap { $0 } .combined)
+            }
+        default:
+            if data_root.isEmpty {
+                prepareChunks(data: self.rawData)
+            }
+            return Promise { seal in
+                ArweaveTransaction.anchor().done {[self] last_tx in
+                    seal.fulfill(ArweaveTransaction.deepHash(buffers:[
+                        withUnsafeBytes(of: format) { Data($0) },
+                        Data(base64URLEncoded: owner),
+                        Data(base64URLEncoded: target),
+                        quantity.data(using: .utf8),
+                        reward.data(using: .utf8),
+                        Data(base64URLEncoded: last_tx),
+                        tags.combined.data(using: .utf8),
+                        withUnsafeBytes(of: data_size) { Data($0) },
+                        Data(base64URLEncoded: data_root)
+                    ].compactMap { $0 }))
+                    
+                }.catch { error in
+                    seal.reject(error)
+                }
             }
         }
     }
