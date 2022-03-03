@@ -37,7 +37,7 @@ public extension ArweaveTransaction {
 }
 
 public struct ArweaveTransaction: Codable {
-    public let format = Format.v2
+    public let format = Format.v1
     public var id: TransactionId = ""
     public var last_tx: TransactionId = ""
     public var owner: String = ""
