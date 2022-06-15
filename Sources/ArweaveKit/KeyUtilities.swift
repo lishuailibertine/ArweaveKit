@@ -2,18 +2,18 @@ import Foundation
 import CryptoKit
 
 extension Digest {
-    var bytes: [UInt8] { Array(makeIterator()) }
-    var data: Data { Data(bytes) }
+   public var bytes: [UInt8] { Array(makeIterator()) }
+   public var data: Data { Data(bytes) }
 }
 
 extension String {
-    var base64URLEncoded: String {
+   public var base64URLEncoded: String {
         Data(utf8).base64URLEncodedString()
-    }
+   }
 }
 
 extension Array where Element == Data {
-    var combined: Data {
+    public var combined: Data {
        reduce(.init(), +)
     }
 }

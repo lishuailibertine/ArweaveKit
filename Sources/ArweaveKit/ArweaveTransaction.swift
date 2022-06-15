@@ -62,7 +62,7 @@ public extension ArweaveTransaction {
         self.target = target.address
     }
     
-    func sign(with wallet: ArweaveWallet) -> Promise<ArweaveTransaction>{
+    func build(ownerModulus:String)-> Promise<ArweaveTransaction>{
         return Promise { seal in
             var tx = self
             firstly {
@@ -73,15 +73,8 @@ public extension ArweaveTransaction {
                 return ArweaveTransaction.price(for: priceRequest)
             }.done({ priceAmount in
                 tx.reward = String(describing: priceAmount)
-                tx.owner = wallet.ownerModulus
-                do {
-                    let signedMessage = try wallet.sign(tx.signatureBody())
-                    tx.signature = signedMessage.base64URLEncodedString()
-                    tx.id = SHA256.hash(data: signedMessage).data.base64URLEncodedString()
-                    seal.fulfill(tx)
-                } catch {
-                    seal.reject(ArweaveApiError.signError)
-                }
+                tx.owner = ownerModulus
+                seal.fulfill(tx)
             }).catch({ error in
                 seal.reject(error)
             })
@@ -103,7 +96,7 @@ public extension ArweaveTransaction {
         }
     }
 
-    private func signatureBody() -> Data {
+    func signatureBody() -> Data {
         return [
             Data(base64URLEncoded: owner),
             Data(base64URLEncoded: target),
