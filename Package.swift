@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/lukereichold/JOSESwift.git", .upToNextMajor(from: "2.2.4")),
-        .package(url: "https://github.com/mxcl/PromiseKit.git", .upToNextMajor(from: "6.16.2"))
+        .package(url: "https://github.com/mxcl/PromiseKit.git", .upToNextMajor(from: "8.1.1"))
     ],
     targets: [
         .target(
